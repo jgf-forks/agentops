@@ -1,0 +1,206 @@
+name: AGENTS.md Validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'pyproject.toml'
+      - 'tach.yml'
+      - '.github/workflows/**'
+      - '.pre-commit-config.yaml'
+      - 'AGENTS.md'
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - 'tach.yml'
+      - '.github/workflows/**'
+      - '.pre-commit-config.yaml'
+      - 'AGENTS.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate-agents-md:
+    name: Validate AGENTS.md
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install toml pyyaml
+
+      - name: Validate AGENTS.md sync
+        id: validate
+        run: |
+          python3 << 'EOF'
+          import toml
+          import yaml
+          import re
+          import sys
+          
+          errors = []
+          warnings = []
+          
+          # Load pyproject.toml
+          with open('pyproject.toml', 'r') as f:
+              pyproject = toml.load(f)
+          
+          # Load tach.yml
+          with open('tach.yml', 'r') as f:
+              tach_config = yaml.safe_load(f)
+          
+          # Load AGENTS.md
+          with open('AGENTS.md', 'r') as f:
+              agents_md = f.read()
+          
+          print("🔍 Validating AGENTS.md synchronization...\n")
+          
+          # Check Python version
+          python_version = pyproject['project']['requires-python']
+          if python_version not in agents_md:
+              errors.append(f"Python version '{python_version}' not found in AGENTS.md")
+          else:
+              print(f"✓ Python version {python_version} documented")
+          
+          # Check core dependencies
+          core_deps = pyproject['project']['dependencies']
+          missing_deps = []
+          for dep in core_deps:
+              dep_name = re.split('[><=!]', dep)[0].strip()
+              if dep_name.lower() not in agents_md.lower():
+                  missing_deps.append(dep)
+          
+          if missing_deps:
+              errors.append(f"Missing core dependencies in AGENTS.md: {', '.join(missing_deps)}")
+          else:
+              print(f"✓ All {len(core_deps)} core dependencies documented")
+          
+          # Check dev dependencies
+          if 'dependency-groups' in pyproject:
+              dev_deps = pyproject['dependency-groups'].get('dev', [])
+              missing_dev = []
+              for dep in dev_deps:
+                  dep_name = re.split('[><=!]', dep)[0].strip().split(';')[0].strip()
+                  if dep_name.lower() not in agents_md.lower():
+                      missing_dev.append(dep_name)
+              
+              if missing_dev:
+                  warnings.append(f"Missing dev dependencies in AGENTS.md: {', '.join(missing_dev)}")
+              else:
+                  print(f"✓ All {len(dev_deps)} dev dependencies documented")
+              
+              # Check CI dependencies
+              ci_deps = pyproject['dependency-groups'].get('ci', [])
+              for dep in ci_deps:
+                  dep_name = re.split('[><=!~]', dep)[0].strip()
+                  if dep_name.lower() not in agents_md.lower():
+                      warnings.append(f"CI dependency '{dep_name}' not found in AGENTS.md")
+                  else:
+                      print(f"✓ CI dependency {dep_name} documented")
+          
+          # Check optional dependencies
+          if 'optional-dependencies' in pyproject['project']:
+              for group, deps in pyproject['project']['optional-dependencies'].items():
+                  if group.lower() not in agents_md.lower():
+                      warnings.append(f"Optional dependency group '{group}' not mentioned in AGENTS.md")
+          
+          # Check Tach module configuration
+          tach_modules = tach_config.get('modules', [])
+          for module in tach_modules:
+              module_path = module['path']
+              if module_path not in agents_md:
+                  warnings.append(f"Tach module '{module_path}' not documented in AGENTS.md")
+          
+          if 'agentops.enums' in agents_md and 'agentops.log_config' in agents_md:
+              print(f"✓ Tach module architecture documented")
+          
+          # Check for workflow files
+          import os
+          workflow_dir = '.github/workflows'
+          workflow_files = [f for f in os.listdir(workflow_dir) if f.endswith('.yml') or f.endswith('.yaml')]
+          
+          documented_workflows = []
+          for wf in workflow_files:
+                  wf_name = wf.replace('.yml', '').replace('.yaml', '').replace('-', ' ').title()
+                  if wf.replace('.yml', '').replace('.yaml', '') in agents_md.lower().replace('-', '').replace('_', ''):
+                      documented_workflows.append(wf)
+          
+          print(f"✓ {len(documented_workflows)}/{len(workflow_files)} workflows documented")
+          
+          # Check CLI entry point
+          if 'scripts' in pyproject['project']:
+              cli_script = pyproject['project']['scripts'].get('agentops')
+              if cli_script and 'agentops.cli:main' in agents_md:
+                  print(f"✓ CLI entry point documented")
+          
+          # Check Ruff configuration
+          if 'tool' in pyproject and 'ruff' in pyproject['tool']:
+              ruff_line_length = pyproject['tool']['ruff'].get('line-length', 88)
+              if str(ruff_line_length) in agents_md:
+                  print(f"✓ Ruff line length ({ruff_line_length}) documented")
+              else:
+                  warnings.append(f"Ruff line length {ruff_line_length} not found in AGENTS.md")
+              
+              if 'lint' in pyproject['tool']['ruff']:
+                  ignored_rules = pyproject['tool']['ruff']['lint'].get('ignore', [])
+                  missing_rules = [rule for rule in ignored_rules if rule not in agents_md]
+                  if missing_rules:
+                      warnings.append(f"Missing Ruff ignore rules in AGENTS.md: {', '.join(missing_rules)}")
+                  else:
+                      print(f"✓ All {len(ignored_rules)} Ruff ignore rules documented")
+          
+          # Print summary
+          print("\n" + "="*50)
+          if errors:
+              print(f"❌ ERRORS: {len(errors)}")
+              for error in errors:
+                  print(f"  - {error}")
+          
+          if warnings:
+              print(f"⚠️  WARNINGS: {len(warnings)}")
+              for warning in warnings:
+                  print(f"  - {warning}")
+          
+          if not errors and not warnings:
+              print("✅ AGENTS.md is fully synchronized!")
+          elif not errors:
+              print("✅ AGENTS.md validation passed with warnings")
+              print("   Consider updating documentation for completeness")
+          
+          print("="*50)
+          
+          # Exit with error if critical issues found
+          if errors:
+              sys.exit(1)
+          
+          EOF
+
+      - name: Comment on PR
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '⚠️ **AGENTS.md Validation Failed**\n\n' +
+                    'The AGENTS.md file appears to be out of sync with project configuration files.\n\n' +
+                    'Please review the workflow logs and update AGENTS.md to reflect current:\n' +
+                    '- Dependencies in `pyproject.toml`\n' +
+                    '- Module configuration in `tach.yml`\n' +
+                    '- Workflows in `.github/workflows/`\n' +
+                    '- Code style rules in `.pre-commit-config.yaml`\n\n' +
+                    'View the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.'
+            })
