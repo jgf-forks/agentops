@@ -1,26 +1,36 @@
+"""
+AgentOps enums for user-friendly API.
+
+This module provides simple enums that users can import from agentops
+without needing to know about OpenTelemetry internals.
+"""
+
 from enum import Enum
+from opentelemetry.trace.status import StatusCode
 
 
-class EventType(Enum):
-    LLM = "llms"
-    ACTION = "actions"
-    API = "apis"
-    TOOL = "tools"
-    ERROR = "errors"
-
-
-class EndState(Enum):
+class TraceState(Enum):
     """
-    Enum representing the possible end states of a session.
+    Enum for trace end states.
 
-    Attributes:
-        SUCCESS: Indicates the session ended successfully.
-        FAIL: Indicates the session failed.
-        INDETERMINATE (default): Indicates the session ended with an indeterminate state.
-                       This is the default state if not specified, e.g. if you forget to call end_session()
-                       at the end of your program or don't pass it the end_state parameter
+    This provides a user-friendly interface that maps to OpenTelemetry StatusCode internally.
+    Users can simply use agentops.TraceState.SUCCESS instead of importing OpenTelemetry.
     """
 
-    SUCCESS = "Success"
-    FAIL = "Fail"
-    INDETERMINATE = "Indeterminate"  # Default
+    SUCCESS = StatusCode.OK
+    ERROR = StatusCode.ERROR
+    UNSET = StatusCode.UNSET
+
+    def __str__(self) -> str:
+        """Return the name for string representation."""
+        return self.name
+
+    def to_status_code(self) -> StatusCode:
+        """Convert to OpenTelemetry StatusCode."""
+        return self.value
+
+
+# For backward compatibility, also provide these as module-level constants
+SUCCESS = TraceState.SUCCESS
+ERROR = TraceState.ERROR
+UNSET = TraceState.UNSET
