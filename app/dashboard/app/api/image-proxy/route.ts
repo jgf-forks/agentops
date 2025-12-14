@@ -48,7 +48,11 @@ export async function GET(request: NextRequest) {
       return new NextResponse('Unauthorized (Missing Session)', { status: 401 });
     }
 
-    const backendApiBaseUrl = process.env.BACKEND_API_URL || request.nextUrl.origin;
+    const backendApiBaseUrl = process.env.BACKEND_API_URL;
+    if (!backendApiBaseUrl) {
+      console.error('BACKEND_API_URL is not set. Refusing to proxy image.');
+      return new NextResponse('Internal Server Error: backend misconfigured', { status: 500 });
+    }
     const backendProxyUrl = new URL(`${backendApiBaseUrl}/api/storage-proxy`);
     backendProxyUrl.searchParams.set('url', imageUrl);
 
